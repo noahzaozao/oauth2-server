@@ -3,18 +3,18 @@ package main
 import (
 	"context"
 	"github.com/go-oauth2/oauth2/v4/errors"
+	"github.com/go-oauth2/oauth2/v4/generates"
 	"io"
 	"net/http/httputil"
 	"net/url"
 
-	//"github.com/go-oauth2/oauth2/v4/generates"
 	"github.com/go-oauth2/oauth2/v4/manage"
 	"github.com/go-oauth2/oauth2/v4/models"
 	"github.com/go-oauth2/oauth2/v4/server"
 	"github.com/go-oauth2/oauth2/v4/store"
 	"github.com/go-redis/redis/v8"
 	"encoding/json"
-	//"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt"
 	oredis "github.com/go-oauth2/redis/v4"
 	"github.com/go-session/session"
 	"github.com/joho/godotenv"
@@ -53,9 +53,9 @@ func main() {
 		DB:       REDIS_DB,
 	}))
 
-	//manager.MapAccessGenerate(generates.NewJWTAccessGenerate(
-	//	"", []byte(os.Getenv("SECRET_KEY")), jwt.SigningMethodHS512,
-	//))
+	manager.MapAccessGenerate(generates.NewJWTAccessGenerate(
+		"", []byte(os.Getenv("SECRET_KEY")), jwt.SigningMethodHS512,
+	))
 
 	clientStore := store.NewClientStore()
 	clientStore.Set(os.Getenv("OAUTH2_CLIENT_ID"), &models.Client{
