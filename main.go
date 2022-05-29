@@ -4,25 +4,30 @@ import (
 	"context"
 	"github.com/go-oauth2/oauth2/v4/errors"
 	"github.com/go-oauth2/oauth2/v4/generates"
+	go_authlib "github.com/noahzaozao/go-authlib"
+	"github.com/noahzaozao/go-authlib/db"
+	"github.com/noahzaozao/go-authlib/repository"
 	"io"
 	"net/http/httputil"
 	"net/url"
 
+	"encoding/json"
 	"github.com/go-oauth2/oauth2/v4/manage"
 	"github.com/go-oauth2/oauth2/v4/models"
 	"github.com/go-oauth2/oauth2/v4/server"
 	"github.com/go-oauth2/oauth2/v4/store"
-	"github.com/go-redis/redis/v8"
-	"encoding/json"
-	"github.com/golang-jwt/jwt"
 	oredis "github.com/go-oauth2/redis/v4"
+	"github.com/go-redis/redis/v8"
 	"github.com/go-session/session"
+	"github.com/golang-jwt/jwt"
 	"github.com/joho/godotenv"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"time"
+
+	auth_models "github.com/noahzaozao/go-authlib/models"
 )
 
 func init() {
@@ -33,6 +38,13 @@ func init() {
 }
 
 func main() {
+
+	conn := db.NewConnection()
+	defer conn.Close()
+
+	_ = repository.NewUsersRepository(conn)
+	go_authlib.OnInit(conn)
+
 	// https://github.com/go-oauth2/oauth2
 	manager := manage.NewDefaultManager()
 	manager.SetAuthorizeCodeTokenCfg(manage.DefaultAuthorizeCodeTokenCfg)
@@ -68,9 +80,15 @@ func main() {
 	srv := server.NewServer(server.NewConfig(), manager)
 
 	srv.SetPasswordAuthorizationHandler(func(ctx context.Context, clientID, username, password string) (userID string, err error) {
-		if username == "test" && password == "test" {
-			userID = "test"
+		// Login
+		inputUser := new(auth_models.User)
+		inputUser.Name = username
+		inputUser.Password = password
+		user, err := go_authlib.Login(inputUser)
+		if err != nil {
+			return "", err
 		}
+		userID = user.Id
 		return
 	})
 
@@ -85,6 +103,7 @@ func main() {
 		log.Println("Response Error:", re.Error.Error())
 	})
 
+	http.HandleFunc("/register", registerHandler)
 	http.HandleFunc("/login", loginHandler)
 	http.HandleFunc("/auth", authHandler)
 
@@ -201,6 +220,35 @@ func userAuthorizeHandler(w http.ResponseWriter, r *http.Request) (userID string
 	return
 }
 
+func registerHandler(w http.ResponseWriter, r *http.Request) {
+	if os.Getenv("DUMPVAR") == "1" {
+		_ = dumpRequest(os.Stdout, "register", r)
+	}
+	if r.Method == "POST" {
+		if r.Form == nil {
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+
+		// Register
+		newUser := new(auth_models.User)
+		newUser.Name = r.Form.Get("username")
+		newUser.Password = r.Form.Get("password")
+		err := go_authlib.Register(newUser)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Location", "/login")
+		w.WriteHeader(http.StatusFound)
+		return
+	}
+	outputHTML(w, r, "static/register.html")
+}
+
 func loginHandler(w http.ResponseWriter, r *http.Request) {
 	if os.Getenv("DUMPVAR") == "1" {
 		_ = dumpRequest(os.Stdout, "login", r)
@@ -218,7 +266,17 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		store.Set("LoggedInUserID", r.Form.Get("username"))
+
+		// Login
+		inputUser := new(auth_models.User)
+		inputUser.Name = r.Form.Get("username")
+		inputUser.Password = r.Form.Get("password")
+		user, err := go_authlib.Login(inputUser)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		store.Set("LoggedInUserID", user.Name)
 		store.Save()
 
 		w.Header().Set("Location", "/auth")
